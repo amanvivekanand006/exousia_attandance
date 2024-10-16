@@ -6,11 +6,20 @@ from datetime import datetime,time
 from typing import Optional
 from passlib.context import CryptContext
 from urllib.parse import quote_plus
+from fastapi.middleware.cors import CORSMiddleware
 
 
 
 app = FastAPI()
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # List of allowed origins
+    allow_credentials=True,  # Allows credentials (such as cookies, authorization headers, etc.) to be sent in cross-origin requests
+    allow_methods=["*"],  # Allows all methods (such as GET, POST, DELETE, etc.)
+    allow_headers=["*"],  # Allows all headers
+    expose_headers=["*"]
+)
 
 # username = 'exousiatraining'
 # password = 'exousia@123'
