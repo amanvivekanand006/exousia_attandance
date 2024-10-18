@@ -56,7 +56,7 @@ def verify_password(plain_password, hashed_password):
     return pwd_context.verify(plain_password, hashed_password)
 
 def creating_adminid():
-    counter = admin_collection.find_one_and_update(
+    counter = user_collection.find_one_and_update(
         {'_id': 'admin_id'},
         {'$inc': {'sequence_value': 1}},
         upsert=True,
@@ -72,25 +72,28 @@ def create_user(user:userschema, gender : str = Query(...,enum=["Male","Female"]
     document = user.dict()
     document.update({
         "Gender":gender,
-        "admin_id": emp_id,
+        "employee_id": emp_id,
         "creation_date_time":datetime.now(),
         "password" : get_password_hash(user.password),
         "confirm_password" : get_password_hash(user.confirm_password),
     })
-
-    if (user.password != user.confirm_password):
+    if user_collection.find_one({"email":user.email}):
+        raise HTTPException(status_code=400, detail="Email Id Already Exist")
+    
+    elif (user.password != user.confirm_password):
         raise HTTPException(status_code=400, detail="Password and Confirm Password does not match")
+
     else:
-        admin_collection.insert_one(document)
+        user_collection.insert_one(document)
         document["_id"] = str(document["_id"])  # Convert ObjectId to string
-        return document
+        return {"message": "Registration successfull", "user":document}
 
 
 
 @app.patch("/update_admin_status", tags=["AdminRegistration"])
-def update_status(adminid:str, status : str = Query(...,enum=["Active","Inactive"])):
-    if (admin_collection.find_one({"admin_id":adminid})):
-        document = admin_collection.find_one_and_update({"admin_id":adminid} , {"$set":{"status":status}},return_document=True)
+def update_status(userid:str, status : str = Query(...,enum=["Active","Inactive"])):
+    if (user_collection.find_one({"employee_id":userid})):
+        document = user_collection.find_one_and_update({"employee_id":userid} , {"$set":{"status":status}},return_document=True)
         document["_id"] = str(document["_id"])
         return document
     else:
@@ -99,13 +102,16 @@ def update_status(adminid:str, status : str = Query(...,enum=["Active","Inactive
 
 @app.get("/get_all_active_admin", tags=["AdminRegistration"])
 def get_all_active_user():
-    document = admin_collection.find_one({"status":"Active"})
-    document["_id"] = str(document["_id"])
-    return document
+    documents = user_collection.find({"status":"Active","role":"admin"})
+    active_admins = []
+    for doc in documents:
+       doc["_id"] = str(doc["_id"])
+       active_admins.append(doc)
+    return active_admins
 
 @app.get("/get_all_admin", tags=["AdminRegistration"])
 def get_all_user():
-    documents = list(admin_collection.find())
+    documents = list(user_collection.find({"role":"admin"}))
     for doc in documents:
         doc["_id"] = str(doc["_id"])
     return documents
@@ -166,10 +172,12 @@ def create_user(user:userschema, gender : str = Query(...,enum=["Male","Female"]
 
     if (user.password != user.confirm_password):
         raise HTTPException(status_code=400, detail="Password and Confirm Password does not match")
+    elif user_collection.find_one({"email":user.email}):
+        raise HTTPException(status_code=400, detail="Email Id Already Exist")
     else:
         user_collection.insert_one(document)
         document["_id"] = str(document["_id"])  # Convert ObjectId to string
-        return document
+        return {"message": "Registration successfull", "user":document}
 
 @app.patch("/update_status", tags=["UserRegistration"])
 def update_status(userid:str, status : str = Query(...,enum=["Active","Inactive"])):
@@ -183,13 +191,16 @@ def update_status(userid:str, status : str = Query(...,enum=["Active","Inactive"
 
 @app.get("/get all active users", tags=["UserRegistration"])
 def get_all_active_user():
-    document = user_collection.find_one({"status":"Active"})
-    document["_id"] = str(document["_id"])
-    return document
+    documents = user_collection.find({"status":"Active", "role":"employee"})
+    active_users = []
+    for doc in documents:
+       doc["_id"] = str(doc["_id"])
+       active_users.append(doc)
+    return active_users
 
 @app.get("/get all users", tags=["UserRegistration"])
 def get_all_user():
-    documents = list(user_collection.find())
+    documents = list(user_collection.find({"role":"employee"}))
     for doc in documents:
         doc["_id"] = str(doc["_id"])
     return documents
@@ -205,23 +216,23 @@ class LoginSchema(BaseModel):
     email: EmailStr
     password: str
 
-@app.post("/User login", tags=["User Login"])
+@app.post("/User_login", tags=["User_and admin_Login"])
 def login(user: LoginSchema):
-    db_user = user_collection.find_one({"email": user.email})
+    db_user = user_collection.find_one({"email": user.email, "status":"Active"})
     if db_user and verify_password(user.password, db_user['password']):
-        return {"message": "Login successful", "user_id": str(db_user["employee_id"])}
+        return {"message": "Login successful", "user_id": str(db_user["employee_id"]), "role":db_user["role"], "name":db_user["name"]}
     else:
-        raise HTTPException(status_code=401, detail="Invalid credentials")
+        raise HTTPException(status_code=401, detail="Invalid credentials or InActive User!")
     
 
 #------------------------------------------------------------admin login--------------------------------------------------------------------#
-@app.post("/admin login", tags=["Admin Login"])
-def login(user: LoginSchema):
-    db_user = admin_collection.find_one({"email": user.email})
-    if db_user and verify_password(user.password, db_user['password']):
-        return {"message": "Login successful", "user_id": str(db_user["admin_id"])}
-    else:
-        raise HTTPException(status_code=401, detail="Invalid credentials")
+# @app.post("/admin_login", tags=["Admin Login"])
+# def login(user: LoginSchema):
+#     db_user = admin_collection.find_one({"email": user.email})
+#     if db_user and verify_password(user.password, db_user['password']):
+#         return {"message": "Login successful", "user_id": str(db_user["admin_id"])}
+#     else:
+#         raise HTTPException(status_code=401, detail="Invalid credentials")
 
 
 
