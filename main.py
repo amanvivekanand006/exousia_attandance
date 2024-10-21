@@ -2,10 +2,11 @@ from fastapi import FastAPI,Query,HTTPException
 from pydantic import BaseModel,EmailStr
 from pymongo import MongoClient
 from enum import Enum
-from datetime import datetime,time
+from datetime import datetime,time,timedelta, date
 from typing import Optional
 from passlib.context import CryptContext
 from urllib.parse import quote_plus
+import calendar
 from fastapi.middleware.cors import CORSMiddleware
 
 
@@ -340,3 +341,195 @@ def user_punch_time(userid:str,punchschema:punch_in_schema):
     
     return {"message": "Punch-Out Successful", "punch_details": updated_punch_record}
     
+
+#----------------------------------------------get api for tables----------------------------------------------------------------------------#
+
+
+
+@app.get("/get_one_employee_punching_details")
+def get_emp_datails(usedid:str , date: Optional[date]):
+    start_of_day = datetime.combine(date, datetime.min.time())
+    end_of_day = start_of_day + timedelta(days=1)
+
+    document = user_punch_col.find_one({
+        "employee_id": usedid,
+        "date_and_time": {"$gte": start_of_day, "$lt": end_of_day}
+    })
+    document["_id"] = str(document["_id"])
+    return document
+
+@app.get("/get_all_employee_punching_details")
+def get_emp_datails(date: Optional[date]):
+    start_of_day = datetime.combine(date, datetime.min.time())
+    end_of_day = start_of_day + timedelta(days=1)
+
+    documents = user_punch_col.find({
+        "date_and_time": {"$gte": start_of_day, "$lt": end_of_day}
+    })
+    emp_punches = []
+    for doc in documents:
+      doc["_id"] = str(doc["_id"])
+      emp_punches.append(doc)
+    return emp_punches
+
+
+
+
+
+
+#---------------------------------------------------get_one_emp_attandance_details-------------------------------------------------------#
+
+def calculate_working_hours(punch_in, punch_out):
+    # Calculate total worked hours for the day
+    if punch_in and punch_out:
+        time_diff = punch_out - punch_in
+        return time_diff.total_seconds() / 3600  # Convert seconds to hours
+    return 0
+
+def get_current_month_range():
+    # Get today's date
+    today = datetime.today()
+
+    # First day of the current month
+    start_date = today.replace(day=1)
+
+    # Last day of the current month
+    last_day = calendar.monthrange(today.year, today.month)[1]  # Get the number of days in the month
+    end_date = today.replace(day=last_day)
+
+    return start_date, end_date
+
+@app.get("/employee_attendance")
+def get_employee_attendance(employee_id: str):
+    # Get current month start and end date
+    start_date, end_date = get_current_month_range()
+
+    # Fetch all records for the employee within the month
+    records = list(user_punch_col.find({
+        "employee_id": employee_id,
+        "punch_in_time": {"$gte": start_date, "$lt": end_date}
+    }))
+
+    # Initialize counters
+    full_days = 0
+    half_days = 0
+    leaves = 0
+
+    # Define full day and half day limits (in hours)
+    full_day_hours = 9
+    half_day_hours = 4
+
+    # Track all dates where the employee has records
+    tracked_dates = set()
+
+    for record in records:
+        punch_in_time = record.get("punch_in_time")
+        punch_out_time = record.get("punch_out_time")
+        date = punch_in_time.date()
+
+        tracked_dates.add(date)
+        working_hours = calculate_working_hours(punch_in_time, punch_out_time)
+
+        if working_hours >= full_day_hours:
+            full_days += 1
+        elif half_day_hours <= working_hours < full_day_hours:
+            half_days += 1
+
+    # Calculate leaves by finding dates without any punch-in records
+    total_days = (end_date - start_date).days + 1
+    leaves = total_days - len(tracked_dates)
+
+    return {
+        "employee_id": employee_id,
+        "full_days": full_days,
+        "half_days": half_days,
+        "leaves": leaves
+    }
+
+
+
+
+
+
+
+#-------------------------------get_all_emp_attandance_details------------------------------------------------------------------#
+
+
+
+def cal_all_emp_working_hours(punch_in_time, punch_out_time):
+    if punch_out_time and punch_in_time:
+        return (punch_out_time - punch_in_time).seconds / 3600  # Convert seconds to hours
+    return 0
+
+# Helper function to get the start and end date of the current month
+def get_current_month_range():
+    today = datetime.today()
+
+    # First day of the current month
+    start_date = today.replace(day=1)
+
+    # Last day of the current month
+    last_day = calendar.monthrange(today.year, today.month)[1]
+    end_date = today.replace(day=last_day)
+
+    return start_date, end_date
+
+# Get all employee attendance details
+@app.get("/all_employee_attendance")
+def get_all_employee_attendance():
+    start_date, end_date = get_current_month_range()
+
+    # Fetch all employees
+    all_employees = list(user_collection.find({}))
+
+    result = []
+
+    # Iterate through each employee
+    for employee in all_employees:
+        if "employee_id" not in employee:
+          continue
+        # Fetch the employee_id and proceed with the attendance logic
+        employee_id = employee["employee_id"]
+
+        # Fetch attendance records for the current employee within the current month
+        records = list(user_punch_col.find({
+            "employee_id": employee_id,
+            "punch_in_time": {"$gte": start_date, "$lt": end_date}
+        }))
+
+        # Initialize counters
+        full_days = 0
+        half_days = 0
+        leaves = 0
+        full_day_hours = 9
+        half_day_hours = 4
+
+        tracked_dates = set()
+
+        for record in records:
+            punch_in_time = record.get("punch_in_time")
+            punch_out_time = record.get("punch_out_time")
+            date = punch_in_time.date()
+
+            tracked_dates.add(date)
+            working_hours = cal_all_emp_working_hours(punch_in_time, punch_out_time)
+
+            if working_hours >= full_day_hours:
+                full_days += 1
+            elif half_day_hours <= working_hours < full_day_hours:
+                half_days += 1
+
+        # Calculate leaves (total days in the month - days with records)
+        total_days = (end_date - start_date).days + 1
+        leaves = total_days - len(tracked_dates)
+
+        # Append employee attendance details to the result list
+        result.append({
+            "employee_id": employee_id,
+            "name": employee["name"],
+            "full_days": full_days,
+            "half_days": half_days,
+            "leaves": leaves
+        })
+
+    return result
