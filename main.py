@@ -26,7 +26,7 @@ app.add_middleware(
 # password = 'exousia@123'
 # encoded_username = quote_plus(username)
 # encoded_password = quote_plus(password)
-MONGO_DETAILS="mongodb+srv://exousiatraining:exousia123@cluster0.vkin1.mongodb.net/"
+MONGO_DETAILS="mongodb+srv://amanvivekanand:aman994909@cluster0.nszektx.mongodb.net/"
 client = MongoClient(MONGO_DETAILS)
 
 
